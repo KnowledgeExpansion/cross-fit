@@ -1,5 +1,6 @@
 import asyncio
 from bleak import BleakScanner, BleakClient
+from frame.base.WorkerBase import WorkerBase
 import threading
 
 # Witmotion 장치 UUID 또는 이름 (실제 값으로 변경 필요)
@@ -7,9 +8,10 @@ WITMOTION_NAME = "WitMotion"
 
 
 # 데이터를 처리하기 위한 Thread 클래스
-class DataThread(threading.Thread):
-    def __init__(self, device_name, device_address, client):
+class WitmotionThread(threading.Thread):
+    def __init__(self, server_id, device_name, device_address, client):
         threading.Thread.__init__(self)
+        self.server_id = server_id
         self.device_name = device_name
         self.device_address = device_address
         self.client = client
@@ -38,48 +40,91 @@ class DataThread(threading.Thread):
         asyncio.run(self.connect_and_listen())
 
 
-async def find_witmotion_devices():
-    devices = await BleakScanner.discover()
-    witmotion_devices = []
+class WitmotionDevices(WorkerBase):
+    def __int__(self):
+        WorkerBase.__init__(self, prefix=None)
+        self.event_loop = asyncio.get_event_loop()
+        self.witmotion_threads = []
 
-    # Witmotion 장치 찾기
-    for device in devices:
-        if WITMOTION_NAME in device.name:
-            print(f"Witmotion 장치 발견: {device.name}, 주소: {device.address}")
-            witmotion_devices.append(device)
+    def first(self):
+        self.event_loop.run_until_complete(self.find_witmotion_devices())
 
-    return witmotion_devices
+        if len(self.witmotion_threads) == 0:
+            self.w('Can not find any witmotion devices')
 
+    def register(self):
+        pass
 
-def main():
-    loop = asyncio.get_event_loop()
+    def loop(self):
+        try:
+            self.redis_rpc_server.check_messages()
+        except Exception as _ex:
+            self.traceback()
 
-    # Witmotion 장치 검색
-    witmotion_devices = loop.run_until_complete(find_witmotion_devices())
+    def run(self):
+        # 각 Witmotion 장치에 대해 Thread를 생성하고 데이터를 수신
+        for device in self.witmotion_threads:
+            client = BleakClient(device.address)
+            witmotion_thread = WitmotionThread(device.name, device.address, client)
+            witmotion_thread.start()
+            self.witmotion_threads.append(witmotion_thread)
 
-    if not witmotion_devices:
-        print("Witmotion 장치를 찾지 못했습니다.")
-        return
+    def terminate(self):
+        self.i('Terminated WitmotionDevices !!!')
 
-    threads = []
+    def stop(self):
+        self.i('Stop WitmotionDevices !!!')
+        try:
+            for w_thread in self.witmotion_threads:
+                w_thread.stop()
+                w_thread.join()
 
-    # 각 Witmotion 장치에 대해 Thread를 생성하고 데이터를 수신
-    for device in witmotion_devices:
-        client = BleakClient(device.address)
-        thread = DataThread(device.name, device.address, client)
-        thread.start()
-        threads.append(thread)
+        except Exception as ex:
+            self.traceback(ex)
 
-    try:
-        while True:
-            # 메인 스레드가 계속 실행되도록 유지
-            pass
-    except KeyboardInterrupt:
-        # 프로그램 종료 시 스레드 정리
-        print("프로그램 종료 중...")
-        for thread in threads:
-            thread.stop()
-            thread.join()
+        try:
+            WorkerBase.stop(self)
+        except Exception as ex:
+            self.traceback(ex)
+
+    async def find_witmotion_devices(self):
+        devices = await BleakScanner.discover()
+
+        # Witmotion 장치 찾기
+        for device in devices:
+            if WITMOTION_NAME in device.name:
+                self.i('Find Witmotion - Name: {} / Addr: {}'.format(device.name, device.address))
+                self.witmotion_threads.append(device)
+
+# def main():
+#     loop = asyncio.get_event_loop()
+#
+#     # Witmotion 장치 검색
+#     witmotion_devices = loop.run_until_complete(find_witmotion_devices())
+#
+#     if not witmotion_devices:
+#         print("Witmotion 장치를 찾지 못했습니다.")
+#         return
+#
+#     threads = []
+#
+#     # 각 Witmotion 장치에 대해 Thread를 생성하고 데이터를 수신
+#     for device in witmotion_devices:
+#         client = BleakClient(device.address)
+#         thread = DataThread(device.name, device.address, client)
+#         thread.start()
+#         threads.append(thread)
+#
+#     try:
+#         while True:
+#             # 메인 스레드가 계속 실행되도록 유지
+#             pass
+#     except KeyboardInterrupt:
+#         # 프로그램 종료 시 스레드 정리
+#         print("프로그램 종료 중...")
+#         for thread in threads:
+#             thread.stop()
+#             thread.join()
 
 
 if __name__ == "__main__":

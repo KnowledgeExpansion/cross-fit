@@ -362,7 +362,7 @@ def make_current_link(root_path, target_path, project_name, module_name=None):
             pass
 
 
-def dbg_setup(app_path=None, dbg_console_on=False, dbg_view_on=False, module_name=None, project_name='kpo', dbg_netlog=False, dbg_config=None):
+def dbg_setup(app_path=None, dbg_console_on=False, dbg_view_on=False, module_name=None, project_name='crot', dbg_netlog=False, dbg_config=None):
     if not dbg_config:
         dbg_config = dbg  # use the singleton DbgConfig
         # print('dbg_setup with singleton DbgConfig', dbg)
@@ -382,12 +382,6 @@ def dbg_setup(app_path=None, dbg_console_on=False, dbg_view_on=False, module_nam
         log_file = os.path.join(dbg_config.log_path, dbg_config.log_name)
         dbg_config.enable_file(log_file)
         sys.stderr = StreamToLogger(logging.getLogger(), logging.WARN)  # redirect sys.stderr to DbgBase.WARN
-
-        # TODO
-        # Redirection STDOUT -> ..._stdout.log
-        if is_linux() and False:
-            stdout_file = os.path.join(dbg_config.log_path, get_log_name_for_timestamp(project_name, 'stdout'))
-            sys.stdout = open(stdout_file, "a")
 
         make_current_link(dbg_config.log_path, log_name, project_name, module_name)
 
