@@ -1,8 +1,7 @@
 from multiprocessing import freeze_support
 from datetime import datetime
 from frame.base.DbgBase import dbg, dbg_setup
-from core.kafka.KafkaMgr import redis_conn, RedisRPCServer, RedisRPCClient, \
-    check_redis_conn, subprocess_redis, lane_prefix, del_redis_crt
+from core.kafka.KafkaMgr_ex2 import KafkaMgr, check_kafka_conn
 
 import CrotConfiguration
 import signal
@@ -27,7 +26,7 @@ class KafkaRPCInterface(object):
 def run_kafka_rpc_server(is_stop, kafka_rpc_server):
     while not is_stop.is_set():
         try:
-            kafka_rpc_server.check_messages()
+            kafka_rpc_server.consume_messages()
         except Exception as ex:
             print(ex)
         time.sleep(1)
@@ -36,10 +35,7 @@ def run_kafka_rpc_server(is_stop, kafka_rpc_server):
 def main():
     def signal_handler(signal, frame):
         print('You pressed Ctrl+C! {}'.format(current_process()))
-        redis_rpc_client = KafkaRPCInterface(redis_conn)
-        redis_rpc_client.kpolink_send_pri_kpoend({"PRINTER": {"Name": "PRINTER_FRONT"}})
-        time.sleep(2)
-        redis_rpc_server_is_stop.set()
+        kafka_rpc_server_is_stop.set()
         crot_manager.stop()
         sys.exit(0)
 
@@ -54,7 +50,7 @@ def main():
     os.environ['KPOENGINE_PID'] = str(os.getpid())
     dbg_setup(app_path=CrotConfiguration.ROOT_PATH, module_name=module_name, dbg_console_on=False)
 
-    dbg.i(module_name, "KPOengine PID: {}".format(os.getpid()))
+    dbg.i(module_name, "CrotEngine PID: {}".format(os.getpid()))
 
     # Start Redis Server
     # if not is_linux():
@@ -62,8 +58,7 @@ def main():
     #     p.start()
 
     # Check Connection to Redis Server
-    check_redis_conn(host=CrotConfiguration.KAFKA_ADDR, port=CrotConfiguration.KAFKA_PORT, wait=True)
-
+    check_kafka_conn()
     dbg.d(module_name, "Connecting to redis")
 
     from CrotManager import CrotManager
@@ -87,27 +82,27 @@ def main():
     dbg.i(module_name, "ENABLE WebDashboardWorker")
     crot_manager.add_server(WebDashboardWorker())
 
-    # Redis RPC Server
-    redis_rpc_server_is_stop = threading.Event()
-    redis_rpc_interface = RedisRPCInterface(crot_manager)
-    redis_rpc_server = RedisRPCServer(redis_conn, interface=redis_rpc_interface)
-    redis_rpc_server.call_register(redis_rpc_interface.stop_kpo_manager)
-    redis_thread = threading.Thread(target=lambda: run_redis_rpc_server(redis_rpc_server_is_stop, redis_rpc_server))
-    redis_thread.daemon = True
-    redis_thread.start()
+    # Kafka RPC Server
+    kafka_rpc_server_is_stop = threading.Event()
+    kafka_rpc_interface = KafkaRPCInterface(crot_manager)
+    kafka_rpc_server = KafkaMgr(interface=kafka_rpc_interface)
+    kafka_rpc_server.call_register(kafka_rpc_interface.stop_kpo_manager)
+    kafka_thread = threading.Thread(target=lambda: run_kafka_rpc_server(kafka_rpc_server_is_stop, kafka_rpc_server))
+    kafka_thread.daemon = True
+    kafka_thread.start()
 
     # Start KPO Manager
     crot_manager.start()
 
     # Do Something
-    print("KPO Started")
-    dbg.d(module_name, "KPO Started")
+    print("CRoT Started")
+    dbg.d(module_name, "CRoT Started")
 
     # Finish KPO Manager
     crot_manager.join()
     # time.sleep(10)
 
-    redis_rpc_server_is_stop.set()
+    kafka_rpc_server_is_stop.set()
     # kpo_manager.stop()
 
 

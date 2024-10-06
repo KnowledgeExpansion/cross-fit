@@ -32,8 +32,8 @@ print("conf_path : {}".format(conf_path))
 print("=============================================")
 
 # Connection Settings
-KAFKA_ADDR = conf.get('redis_addr') or 'localhost'
-KAFKA_PORT = conf.get('redis_port') or 8082
+KAFKA_ADDR = conf.get('kafka_addr') or 'localhost'
+KAFKA_PORT = conf.get('kafka_port') or '8082'
 
 # REDIS_PASSWORD = '9qX$UZ9&T?8A'
 KAFKA_PASSWORD = False

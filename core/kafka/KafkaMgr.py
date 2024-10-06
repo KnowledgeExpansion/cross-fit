@@ -10,16 +10,21 @@ import hashlib
 from frame.base.DbgBase import DbgConfigNormal, dbg_setup
 from core.main import CrotConfiguration
 from kafka import KafkaProducer, KafkaConsumer
+from confluent_kafka import Producer, Consumer, KafkaException, KafkaError
 
-module_name = 'RedisMgr'
-dbg_kafka_mgr = DbgConfigNormal(logger_name='root.' + module_name)
-dbg_setup(app_path=CrotConfiguration.ROOT_PATH, module_name=module_name, dbg_console_on=False, dbg_config=dbg_kafka_mgr)
 
-ip_port = CrotConfiguration.KAFKA_ADDR + CrotConfiguration.KAFKA_PORT
-kafka_producer = KafkaProducer(bootstrap_servers='localhost:9092',
-                               value_serializer=lambda v: json.dumps(v).encode('utf-8'))
+module_name = 'KafkaMgr'
+dbg_kafkamgr = DbgConfigNormal(logger_name='root.' + module_name)
+dbg_setup(app_path=CrotConfiguration.ROOT_PATH, module_name=module_name, dbg_console_on=False, dbg_config=dbg_kafkamgr)
 
-redis_pubsub = redis_conn.pubsub()
+kafka_ip_port = CrotConfiguration.KAFKA_ADDR + ':' + CrotConfiguration.KAFKA_PORT
+producer_conf = {'bootstrap.servers': kafka_ip_port, 'client.id': 'python-producer'}
+consumer_conf = {'bootstrap.servers': kafka_ip_port, 'group.id': 'python-consumer-group',
+                 'auto.offset.reset': 'earliest'}
+
+producer = Producer(producer_conf)
+consumer = Consumer(consumer_conf)
+
 _kafka_keys = dict()
 _collection_types = dict()
 
@@ -30,139 +35,19 @@ def register(func):
         func()
 
 
-def add_collection(type, key, prefix=None):
-    if prefix:
-        key = "{}-{}".format(prefix, key)
-    _collection_types[key] = type
+def add_collection(_type, key):
+    _collection_types[key] = _type
 
 
-def del_collection(type, key, prefix=None):
-    if prefix:
-        key = "{}-{}".format(prefix, key)
+def del_collection(key):
     del _collection_types[key]
 
 
-def get_redis(key, prefix=None):
-    if prefix:
-        key = "{}-{}".format(prefix, key)
-    type = _collection_types.get(key)
-    ret = _kafka_keys[key] = type(redis=redis_conn, key=key)
-    return ret
+def consume_message():
+    pass
 
 
-def get_redis_crt(key, prefix=None, with_meta=False):
-    original_key = key
-    try:
-        # dbg_redismgr.d(module_name, 'get_redis_crt[{}-{}]'.format(prefix, key))
-        if prefix:
-            key = "{}-{}".format(prefix, key)
 
-        type = _collection_types.get(key)
-        if type is None:
-            add_collection(redis_collections.SyncableDict, key)
-            type = _collection_types.get(key)
-
-        if settings.REDIS_LARGE:
-            data = _redis_keys[key] = type(redis=redis_conn_large, key=key)
-        else:
-            data = _redis_keys[key] = type(redis=redis_conn, key=key)
-        dbg_redismgr.d(module_name, 'get_redis_crt[{}, {}] data'.format(prefix, key))
-
-        ret = data.get('_data')
-
-        # if is_remove_key:
-        #     del_collection(redis_collections.SyncableDict, key)
-
-        if with_meta:
-            return data.get('_data'), data.get('_meta')
-
-        return ret
-
-    except:
-        time.sleep(0.005)
-        dbg_redismgr.d(module_name, 'get_redis_crt[{}, {}] except'.format(prefix, key))
-        get_redis_crt(original_key, prefix, with_meta)
-
-
-def set_redis_crt(key, data, metadata=None, prefix=None):
-    original_key = key
-    try:
-        # dbg_redismgr.d(module_name, 'set_redis_crt[{}-{}]'.format(prefix, key))
-        if prefix:
-            key = "{}-{}".format(prefix, key)
-        _data = dict()
-        _meta = metadata or dict()
-        _meta["timestamp"] = datetime.datetime.now().isoformat()
-
-        _data['_meta'] = _meta
-        _data['_data'] = data
-
-        type = _collection_types.get(key)
-        if type is None:
-            add_collection(redis_collections.SyncableDict, key)
-            type = _collection_types.get(key)
-
-        if settings.REDIS_LARGE:
-            _rdd = _redis_keys[key] = type(redis=redis_conn_large, key=key)
-        else:
-            _rdd = _redis_keys[key] = type(redis=redis_conn, key=key)
-        _rdd.update(_data)
-        ret = _rdd.sync()
-        dbg_redismgr.d(module_name, 'set_redis_crt[{}, {}] ret:{}, data'.format(prefix, key, ret))
-        return ret
-
-    except:
-        time.sleep(0.001)
-        # dbg_redismgr.d(module_name, 'set_redis_crt[{}, {}] except'.format(prefix, key))
-        set_redis_crt(original_key, data, metadata, prefix)
-
-
-def del_redis_crt(key, prefix=None):
-    original_key = key
-    try:
-        dbg_redismgr.d(module_name, 'del_redis_crt[{}, {}]'.format(prefix, key))
-        if key == "all":
-            ret = None
-            pattern = "{}*".format(prefix)
-            if settings.REDIS_LARGE:
-                keys = redis_conn_large.keys(pattern)
-                for key_name in keys:
-                    dbg_redismgr.d(module_name, 'del_redis_crt[{}, {}] for'.format(prefix, key_name))
-                    redis_conn_large.delete(key_name)
-            else:
-                keys = redis_conn.keys(pattern)
-                for key_name in keys:
-                    dbg_redismgr.d(module_name, 'del_redis_crt[{}, {}] for'.format(prefix, key_name))
-                    redis_conn.delete(key_name)
-        else:
-            if prefix:
-                key = "{}-{}".format(prefix, key)
-
-            type = _collection_types.get(key)
-            if type is None:
-                add_collection(redis_collections.SyncableDict, key)
-                type = _collection_types.get(key)
-
-            if settings.REDIS_LARGE:
-                ret = _redis_keys[key] = type(redis=redis_conn_large, key=key)
-            else:
-                ret = _redis_keys[key] = type(redis=redis_conn, key=key)
-
-            if len(ret) is not 0:
-                del _redis_keys[key]
-                if settings.REDIS_LARGE:
-                    redis_conn_large.delete(key)
-                else:
-                    redis_conn.delete(key)
-                ret.clear()
-
-        dbg_redismgr.d(module_name, 'del_redis_crt[{}, {}] ret:{}, data'.format(prefix, key, ret))
-
-        return ret
-    except:
-        time.sleep(0.001)
-        dbg_redismgr.d(module_name, 'del_redis_crt[{}, {}] except'.format(prefix, key))
-        del_redis_crt(original_key, prefix)
 
 
 add_collection(redis_collections.SyncableDict, 'job')
@@ -235,101 +120,6 @@ def check_redis_conn(host='localhost', port=8082, wait=True):
             time.sleep(1)
 
     return _check_redis_conn(host=host, port=port)
-
-
-# def check_redis_sg(host='localhost', port=8082, wait=True):
-#     def _check_redis_sg(host=host, port=port):
-#         try:
-#             redis_sg = redis.StrictRedis(host=host, port=port)
-#             redis_sg.ping()
-#         except redis.ConnectionError as ex:
-#             dbg_redismgr.d('KPOsim', "Retry Connecting to redis set get... ({})".format(ex))
-#             print("Retry Connecting to redis... ({})".format(ex))
-#             return False
-#
-#         return redis_conn
-#
-#     if wait:
-#         while not _check_redis_sg(host=host, port=port):
-#             time.sleep(1)
-#
-#     return _check_redis_sg(host=host, port=port)
-
-
-def generate_job_index(lane_cd, job_name):
-    seed = '{},{}'.format(lane_cd, job_name)
-    job_index = hashlib.sha256(seed.encode()).hexdigest()
-    return job_index
-
-
-def generate_result_index(pcb_id, pcb_name):
-    seed = '{},{}'.format(pcb_id, pcb_name)
-    result_index = hashlib.sha256(seed.encode()).hexdigest()
-    return result_index
-
-
-def lane_prefix(lane_id):
-    if lane_id in [1, '1']:
-        return 'lane-1'
-    elif lane_id in [2, '2']:
-        return 'lane-2'
-
-
-def subprocess_redis():
-    module_name = 'RedisServer'
-    dbg_setup(app_path='/'.join([settings.ROOT_PATH, settings.PROJECT_NAME]), module_name=module_name,
-              project_name=settings.PROJECT_NAME, dbg_console_on=settings.LOGGING_CONSOLE)
-
-    redis_conn = check_redis_conn(host=settings.REDIS_ADDR, port=settings.REDIS_PORT, wait=False)
-    if redis_conn:
-        redis_conn.shutdown()
-        dbg_redismgr.w(module_name, 'Kill the redis-server that is already running.')
-        # print('Kill the redis-server that is already running.')
-
-    redis_port = settings.REDIS_PORT
-    if get_os_arch() == 64:
-        root_path = 'kpo.res.redis.windows'
-    elif get_os_arch() == 32:
-        root_path = 'kpo.res.redis.windows_x86'
-    else:
-        root_path = 'kpo.res.redis.windows'
-
-    app_path = pkg_resources.resource_filename(root_path, 'redis-server.exe')
-    conf_path = pkg_resources.resource_filename(root_path, 'redis.windows.conf')
-
-    command = list()
-    command.append(app_path)
-    command.append(conf_path)
-    command.append('--port')
-    command.append(str(redis_port))
-    command.append('--loglevel')
-    command.append(settings.REDIS_LOG_LEVEL)
-    command.append('--protected-mode')
-    command.append(settings.REDIS_PROTECTED)
-    if settings.REDIS_PASSWORD:
-        command.append('--requirepass')
-        command.append(settings.REDIS_PASSWORD)
-
-    dbg_redismgr.d(module_name, 'Command: {}'.format(' '.join(command)))
-    # dbg_redismgr.d(module_name, 'Start redis (localhost, {})'.format(redis_port))
-
-    popen = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
-    _pid = popen.pid
-    # (stdout, stderr) = popen.communicate()
-    # print 'redis stdout/err: ({}, {})'.format(stdout, stderr)
-    # print 'stderr: ', stderr
-    # return stdout, stderr
-    while True:
-        stdout_line = popen.stdout.readline()
-        stderr_line = popen.stdout.readline()
-        if stdout_line != '':
-            # the real code does filtering here
-            dbg_redismgr.d(module_name, stdout_line.rstrip())
-        if stderr_line != '':
-            # the real code does filtering here
-            dbg_redismgr.d(module_name, stderr_line.rstrip())
-        else:
-            break
 
 
 class RedisBase(object):
@@ -573,25 +363,6 @@ class RedisEvent(RedisBase):
                 return False
 
         return ret
-
-
-def test_redis_sub(chanels):
-    while True:
-        try:
-            redis_conn = redis.StrictRedis(host=settings.REDIS_ADDR, port=settings.REDIS_PORT)
-            redis_pubsub = redis_conn.pubsub()
-
-            redis_pubsub.subscribe(chanels)
-            while True:
-                msg = redis_pubsub.get_message()
-                if msg:
-                    pass
-                    # print(msg.get('data'))
-                time.sleep(1)
-        except Exception as ex:
-            pass
-            # print(ex)
-        time.sleep(0.5)
 
 
 if __name__ == '__main__':

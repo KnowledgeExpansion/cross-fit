@@ -19,6 +19,8 @@ class KafkaWorkerEvent(CompBase):
         # self._is_stop = multiprocessing.Manager().Event()
 
         self.handler = dict()
+        self.producer = self.create_producer()
+        self.consumer = self.create_consumer()
 
         # Functions
         self.terminate = None
