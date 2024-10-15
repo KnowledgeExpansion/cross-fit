@@ -2,6 +2,9 @@ import json
 from core.main import CrotConfiguration
 from frame.base.DbgBase import DbgConfigNormal, dbg_setup
 from confluent_kafka import Producer, Consumer, KafkaException, KafkaError
+from kafka.admin import KafkaAdminClient, NewTopic
+from kafka.errors import TopicAlreadyExistsError, UnknownTopicOrPartitionError
+from kafka.admin import ConfigResource, ConfigResourceType
 
 
 module_name = 'KafkaMgr'
@@ -9,6 +12,79 @@ dbg_kfk = DbgConfigNormal(logger_name='root.' + module_name)
 dbg_setup(app_path=CrotConfiguration.ROOT_PATH, module_name=module_name,
           dbg_console_on=False, dbg_config=dbg_kfk)
 KAFKA_IP_PORT = CrotConfiguration.KAFKA_ADDR + ':' + CrotConfiguration.KAFKA_PORT
+
+
+# Kafka AdminClient 연결
+admin_client = KafkaAdminClient(bootstrap_servers=KAFKA_IP_PORT, client_id='my-admin-client')
+
+
+def alter_topic_partitions(topic_name, new_partitions):
+    """Kafka 토픽의 파티션 수를 변경"""
+    admin_client.create_partitions({topic_name: new_partitions})
+    print(f"Partitions for topic '{topic_name}' altered to {new_partitions}.")
+
+
+def alter_topic_config(topic_name, configs):
+    """Kafka 토픽의 설정을 변경"""
+    topic_config = ConfigResource(ConfigResourceType.TOPIC, topic_name)
+    configs = {key: str(value) for key, value in configs.items()}
+
+    admin_client.alter_configs({topic_config: configs})
+    print(f"Configs for topic '{topic_name}' altered: {configs}")
+
+
+def list_topics():
+    """기존 Kafka 토픽을 나열"""
+    topics = admin_client.list_topics()
+    print(f"Existing topics: {topics}")
+    return topics
+
+
+def create_topic(topic_name, num_partitions=1, replication_factor=1):
+    """새로운 Kafka 토픽을 생성"""
+    try:
+        topic = NewTopic(name=topic_name, num_partitions=num_partitions, replication_factor=replication_factor)
+        admin_client.create_topics([topic])
+        print(f"Topic '{topic_name}' created successfully!")
+    except TopicAlreadyExistsError:
+        print(f"Topic '{topic_name}' already exists.")
+
+
+def delete_topic(topic_name):
+    """Kafka 토픽을 삭제"""
+    try:
+        admin_client.delete_topics([topic_name])
+        print(f"Topic '{topic_name}' deleted successfully!")
+    except UnknownTopicOrPartitionError:
+        print(f"Topic '{topic_name}' does not exist.")
+
+
+def describe_topic(topic_name):
+    """특정 Kafka 토픽의 메타데이터를 조회"""
+    try:
+        topic_metadata = admin_client.describe_topics([topic_name])
+        print(f"Metadata for topic '{topic_name}': {topic_metadata}")
+    except UnknownTopicOrPartitionError:
+        print(f"Topic '{topic_name}' does not exist.")
+
+
+# 연결된 Kafka 클러스터의 토픽 나열
+list_topics()
+
+# 새로운 토픽 생성
+create_topic('my-new-topic', num_partitions=3, replication_factor=1)
+
+# 특정 토픽의 메타데이터 확인
+describe_topic('my-new-topic')
+
+# 토픽 삭제
+delete_topic('my-old-topic')
+
+# 파티션 수 변경
+alter_topic_partitions('my-new-topic', new_partitions=5)
+
+# 토픽 설정 변경 (예: 메시지 유지 기간 설정)
+alter_topic_config('my-new-topic', {'retention.ms': 60000})  # 1분간 메시지 유지
 
 
 def check_kafka_conn(duration=10):

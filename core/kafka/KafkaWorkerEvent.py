@@ -1,11 +1,63 @@
 import time
 import hashlib
+import pickle
 import multiprocessing
-from kafka import KafkaProducer
+from confluent_kafka import Producer, Consumer, KafkaException, KafkaError
+from KafkaMgr_ex2 import KAFKA_IP_PORT
 from frame.base.CompBase import *
 
 Q_EMPTY_DELAY = 0.1
 Q_GET_TIMEOUT = 1
+
+
+class KafkaBase(object):
+    """ sg means set_get """
+    def __init__(self, kafka):
+        self.kafka_conn = kafka
+
+    def _serialize(self, data):
+        self.pickle_protocol = pickle.HIGHEST_PROTOCOL
+        return pickle.dumps(data, protocol=self.pickle_protocol)
+
+    def _unserialize(self, data):
+        return pickle.loads(data) if data else None
+
+
+class KafkaEvent(KafkaBase):
+    def __init__(self, kafka, *args, **kwargs):
+        super(KafkaBase, self).__init__(kafka)
+        self.event_consumer = self.kafka_conn.pu
+        self.pubsub.subscribe(self.channel)
+
+    def put(self, data):
+        serialized_data = self._serialize(data)
+        self.redis_conn.publish(self.channel, serialized_data)
+
+    def get_data(self, key):
+        # data = self.redis_conn.get(key)
+        data = get_redis_crt(key, prefix=lane_prefix(LANE_ID_OPT))
+        get_data = self._unserialize(data)
+
+        return get_data
+
+    def get_message(self, timeout=0):
+        ret = None
+        message = self.pubsub.get_message(timeout=timeout)
+        if message:
+            # print "message: ", message
+            _type = message['type']
+            _channel = message['channel']
+            _serialized_data = message['data']
+
+            if _type == "subscribe":
+                return False
+            elif _type == "message":
+                data = self._unserialize(_serialized_data)
+                return data
+            else:
+                return False
+
+        return ret
 
 
 class KafkaWorkerEvent(CompBase):
@@ -30,7 +82,7 @@ class KafkaWorkerEvent(CompBase):
 
     def init(self):
         # TODO: Kafka Event
-        self._kafka_event = KafkaProducer()
+        self._kafka_event = KafkaEvent()
 
     def set_loop_callback(self, func):
         self.loop = func
